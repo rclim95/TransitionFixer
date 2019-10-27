@@ -4,7 +4,10 @@
 #include <string>
 #include <stdexcept>
 
-#include "boost/program_options.hpp"
+#include <boost/program_options.hpp>
+
+#include "winutils.h"
+
 
 namespace po = boost::program_options;
 
@@ -62,9 +65,13 @@ int main(int argc, char* argv[])
 
 		modeToInvoke->second();
 	}
-	catch (std::exception& e) {
+	catch (const po::error& e) {
 		std::cerr << "Error: " << e.what() << "\n\n";
 		print_help(options);
+		return ERR_BAD_ARGS;
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error: " << e.what() << "\n\n";
 		return ERR_EXCEPTION;
 	}
 
@@ -73,7 +80,7 @@ int main(int argc, char* argv[])
 
 void enable_active_desktop()
 {
-	std::cout << "TODO: Active Desktop";
+	Windows::EnableActiveDesktop();
 }
 
 
