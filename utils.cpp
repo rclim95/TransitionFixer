@@ -3,6 +3,18 @@
 #include <atlstr.h>
 #include <Windows.h>
 
+std::wstring GetExePath()
+{
+	WCHAR filePath[MAX_PATH] = { 0 };
+	DWORD result = GetModuleFileNameW(NULL, filePath, MAX_PATH);
+	if (result == 0) {
+		return std::wstring();
+	}
+	else {
+		return filePath;
+	}
+}
+
 std::wstring GetWin32Error(DWORD errorCode)
 {
 	LPWSTR errorText = nullptr;

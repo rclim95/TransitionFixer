@@ -13,18 +13,6 @@ namespace {
 	constexpr LPCWSTR APP_NAME = L"TransitionFixer";
 	constexpr LPCWSTR KEY_PATH = L"SYSTEM\\CurrentControlset\\Services\\EventLog\\Application\\TransitionFixer";
 
-	std::wstring GetExePath()
-	{
-		WCHAR filePath[MAX_PATH] = { 0 };
-		DWORD result = GetModuleFileNameW(NULL, filePath, MAX_PATH);
-		if (result == 0) {
-			return std::wstring();
-		}
-		else {
-			return filePath;
-		}
-	}
-
 	bool LogMessage(WORD eventType, const std::wstring& message)
 	{
 		DWORD eventID;

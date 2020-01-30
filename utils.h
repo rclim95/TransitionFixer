@@ -5,6 +5,12 @@
 #include <Windows.h>
 
 /// <summary>
+/// Gets the path to this executable.
+/// </summary>
+/// <returns>The executable path or an empty string if it cannot be deduced.</returns>
+std::wstring GetExePath();
+
+/// <summary>
 /// Gets the message for an error code returned by the Win32 error message.
 /// </summary>
 /// <param name="errorCode">The error code.</param>

@@ -5,6 +5,7 @@
 
 #include "exit_code.h"
 #include "event_log.h"
+#include "task_scheduler.h"
 #include "transition_fixer.h"
 
 namespace po = boost::program_options;
@@ -23,8 +24,10 @@ int main(int argc, char* argv[])
 				->required(),
 			"The mode the program will run as. Valid modes are:\n"
 			"- run (default)\n"
-			"- install\n"
-			"- uninstall");
+			"- install-event-log\n"
+			"- uninstall-event-log\n"
+			"- install-task\n"
+			"- uninstall-task");
 
 	po::positional_options_description pos;
 	pos.add("mode", 1);
@@ -55,10 +58,16 @@ int main(int argc, char* argv[])
 		// What are we trying to do?
 		bool succeeded = false;
 		std::string mode = vm["mode"].as<std::string>();
-		if (mode == "install") {
+		if (mode == "install-event-log") {
 			succeeded = InstallEventLogSource();
 			if (succeeded) {
 				LogInfo(L"Successfully installed Event Log source");
+			}
+		}
+		else if (mode == "install-task") {
+			succeeded = InstallTask();
+			if (succeeded) {
+				LogInfo(L"Successfully installed task into Windows Task Scheduler");
 			}
 		}
 		else if (mode == "run") {
@@ -67,10 +76,16 @@ int main(int argc, char* argv[])
 				LogInfo(L"Successfully enabled Active Desktop");
 			}
 		}
-		else if (mode == "uninstall") {
+		else if (mode == "uninstall-event-log") {
 			succeeded = UninstallEventLogSource();
 			if (succeeded) {
 				LogInfo(L"Successfully removed Event Log source");
+			}
+		}
+		else if (mode == "uninstall-task") {
+			succeeded = UninstallTask();
+			if (succeeded) {
+				LogInfo(L"Successfully removed task from Windows Task Scheduler");
 			}
 		}
 		else {
