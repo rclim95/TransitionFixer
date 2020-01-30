@@ -286,5 +286,64 @@ bool InstallTask()
 
 bool UninstallTask()
 {
+    // Initialize COM, using CCoInitializeEx so that we don't need to worry about
+// cleaning up after ourselves.
+    CCoInitializeEx comInit{ COINIT_MULTITHREADED };
+    if (FAILED(comInit)) {
+        std::cerr << "Failed to initialize COM: ";
+        std::wcerr << GetWin32Error(comInit);
+
+        return false;
+    }
+
+    // Setup general COM security so that we're impersonating the current user.
+    HRESULT result = CoInitializeSecurity(
+        NULL,
+        -1,
+        NULL,
+        NULL,
+        RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        NULL,
+        0,
+        NULL);
+    if (FAILED(result)) {
+        std::cerr << "Failed to initialize COM security: ";
+        std::wcerr << GetWin32Error(result);
+
+        return false;
+    }
+
+    // Access the Windows Task Service API by creating an instance of it and attempt to connect
+    // to the Task Scheduler service on the local machine.
+    CComPtr<ITaskService> taskService;
+    result = taskService.CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER);
+    if (FAILED(result)) {
+        std::cerr << "Failed to create an instance of the ITaskService:";
+        std::wcerr << GetWin32Error(result);
+
+        return false;
+    }
+
+    result = taskService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
+    if (FAILED(result)) {
+        std::cerr << "Failed to connect to the Task Scheduler service of the local machine: ";
+        std::wcerr << GetWin32Error(result);
+
+        return false;
+    }
+
+    // Get a pointer to the root task folder, which is where we'll register our new task.
+    CComPtr<ITaskFolder> rootFolder;
+    result = taskService->GetFolder(_bstr_t(L"\\"), &rootFolder);
+    if (FAILED(result)) {
+        std::cerr << "Failed to get root folder of Task Scheduler: ";
+        std::wcerr << GetWin32Error(result);
+
+        return false;
+    }
+
+    rootFolder->DeleteTask(_bstr_t("Transition Fixer"), 0);
+
 	return true;
 }
