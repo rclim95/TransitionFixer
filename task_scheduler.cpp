@@ -13,30 +13,17 @@
 #include <taskschd.h>
 #include <Windows.h>
 
-namespace {
-    /// <summary>
-    /// Provides a RAII type that will call CoInitialize() and its corresponding
-    /// CoUinitialized() upon this class going out of scope.
-    /// </summary>
-    /// <remarks>
-    /// This code was shamelessly stolen from 
-    /// <a href="https://devblogs.microsoft.com/oldnewthing/?p=39243">The Old New Thing</a>
-    /// by Raymond Chen
-    /// </remarks>
-    class CCoInitializeEx {
-    public:
-        CCoInitializeEx(DWORD flags) : m_hr{CoInitializeEx(NULL, flags)} { }
-        ~CCoInitializeEx() { if (SUCCEEDED(m_hr)) CoUninitialize(); }
-        operator HRESULT() const { return m_hr; }
-        HRESULT m_hr;
-    };
+#include "wil/com.h"
+#include "wil/result.h"
+#include "wil/stl.h"
 
-    std::string GetCurrentDateTime()
+namespace {
+    std::wstring GetCurrentDateTime()
     {
-        std::stringstream stream;
+        std::wstringstream stream;
         std::time_t currentTime = std::time(nullptr);
         std::tm currentTimeUtc = *std::gmtime(&currentTime);
-        stream << std::put_time(&currentTimeUtc, "%FT%T");
+        stream << std::put_time(&currentTimeUtc, L"%FT%T");
 
         return stream.str();
     }
@@ -55,160 +42,101 @@ namespace {
         }
     }
 
-    bool SetRegisterationInfo(ITaskDefinition* task)
+    void SetRegisterationInfo(ITaskDefinition* task)
     {
-        CComPtr<IRegistrationInfo> registrationInfo;
-        HRESULT result = task->get_RegistrationInfo(&registrationInfo);
-        if (FAILED(result)) {
-            std::cerr << "Failed to registration information: ";
-            std::wcerr << GetWin32Error(result);
+        wil::com_ptr_t<IRegistrationInfo> registrationInfo;
+        THROW_IF_FAILED(task->get_RegistrationInfo(&registrationInfo));
 
-            return false;
-        }
+        auto currentDateTime = GetCurrentDateTime();
+        auto author = wil::make_bstr(L"Limotto Productions");
+        auto description = wil::make_bstr(
+            L"Fixes an issue where the Windows desktop does not play a fade transition effect "
+            L"when changing wallpapers by enabling Active Desktop."
+        );
+        auto version = wil::make_bstr(L"1.0");
+        auto date = wil::make_bstr(currentDateTime.c_str());
 
-        std::string currentTime = GetCurrentDateTime();
-        registrationInfo->put_Author(_bstr_t("Limotto Productions"));
-        registrationInfo->put_Description(
-            _bstr_t(
-                "Fix an issue where the Windows desktop does not play a fade transition effect "
-                "when changing wallpapers by enabling Active Desktop."));
-        registrationInfo->put_Version(_bstr_t("1.0"));
-        registrationInfo->put_Date(_bstr_t(currentTime.c_str()));
-
-        return true;
+        registrationInfo->put_Author(author.get());
+        registrationInfo->put_Description(description.get());
+        registrationInfo->put_Version(version.get());
+        registrationInfo->put_Date(date.get());
     }
 
-    bool SetSettings(ITaskDefinition* task)
+    void SetSettings(ITaskDefinition* task)
     {
-        CComPtr<ITaskSettings> settings;
-        HRESULT result = task->get_Settings(&settings);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get task settings: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
+        wil::com_ptr_t<ITaskSettings> settings;
+        THROW_IF_FAILED(task->get_Settings(&settings));
 
         settings->put_StartWhenAvailable(VARIANT_TRUE);
-
-        return true;
     }
 
-    bool SetTriggers(ITaskDefinition* task)
+    void SetTriggers(ITaskDefinition* task)
     {
-        CComPtr<ITriggerCollection> triggerCollection;
-        HRESULT result = task->get_Triggers(&triggerCollection);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get task's triggers: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
+        wil::com_ptr_t<ITriggerCollection> triggerCollection;
+        THROW_IF_FAILED(task->get_Triggers(&triggerCollection));
 
         // Add the login trigger to the task's triggers
-        CComPtr<ITrigger> trigger;
-        result = triggerCollection->Create(TASK_TRIGGER_LOGON, &trigger);
-        if (FAILED(result)) {
-            std::cerr << "Failed to create trigger for this task: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
-
-        CComPtr<ILogonTrigger> logonTrigger;
-        result = trigger->QueryInterface(&logonTrigger);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get logon trigger from newly created trigger for this task: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
+        wil::com_ptr_t<ITrigger> trigger;
+        THROW_IF_FAILED(triggerCollection->Create(TASK_TRIGGER_LOGON, &trigger));
+        wil::com_ptr_t<ILogonTrigger> logonTrigger = trigger.query<ILogonTrigger>();
 
         std::wstring userID = GetUserID();
-        logonTrigger->put_UserId(_bstr_t(userID.c_str()));
-        logonTrigger->put_Delay(_bstr_t("PT30S")); // Put a 30s delay, in case Explorer hasn't initialized immediately.
+        auto userIDBStr = wil::make_bstr(userID.c_str());
+        auto delay = wil::make_bstr(L"PT30S"); // Put a 30s delay, in case Explorer hasn't initialized immediately.
 
-        return true;
+        logonTrigger->put_UserId(userIDBStr.get());
+        logonTrigger->put_Delay(delay.get()); 
     }
 
-    bool SetAction(ITaskDefinition* task)
+    void SetAction(ITaskDefinition* task)
     {
-        CComPtr<IActionCollection> actionCollection;
-        HRESULT result = task->get_Actions(&actionCollection);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get task's actions ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
+        // Get the action collections for this task
+        wil::com_ptr_t<IActionCollection> actionCollection;
+        THROW_IF_FAILED(task->get_Actions(&actionCollection));
 
         // Add the executable action to the task's actions
-        CComPtr<IAction> action;
-        result = actionCollection->Create(TASK_ACTION_EXEC, &action);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get task's actions ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
-
-        CComPtr<IExecAction> execAction;
-        result = action->QueryInterface(&execAction);
-        if (FAILED(result)) {
-            std::cerr << "Failed to get executable action from newly-created action: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
+        wil::com_ptr_t<IAction> action;
+        THROW_IF_FAILED(actionCollection->Create(TASK_ACTION_EXEC, &action));
+        wil::com_ptr_t<IExecAction> execAction = action.query<IExecAction>();
 
         std::wstring execPath = GetExePath();
         std::wstring execPathWithoutName = execPath.substr(0, execPath.find_last_of('\\'));
-        execAction->put_Path(_bstr_t(execPath.c_str()));
-        execAction->put_WorkingDirectory(_bstr_t(execPathWithoutName.c_str()));
-        execAction->put_Arguments(_bstr_t("run"));
+        auto path = wil::make_bstr(execPath.c_str());
+        auto workingDir = wil::make_bstr(execPathWithoutName.c_str());
+        auto arguments = wil::make_bstr(L"run");
 
-        return true;
+        execAction->put_Path(path.get());
+        execAction->put_WorkingDirectory(workingDir.get());
+        execAction->put_Arguments(arguments.get());
     }
 
-    bool SaveTask(ITaskFolder* rootFolder, ITaskDefinition* task)
+    void SaveTask(ITaskFolder* rootFolder, ITaskDefinition* task)
     {
         std::wstring currentUser = GetUserID();
-        CComPtr<IRegisteredTask> registeredTask;
-        HRESULT result = rootFolder->RegisterTaskDefinition(
-            _bstr_t("Transition Fixer"),
+        auto taskName = wil::make_bstr(L"Transition Fixer");
+
+        wil::com_ptr_t<IRegisteredTask> registeredTask;
+        THROW_IF_FAILED(rootFolder->RegisterTaskDefinition(
+            taskName.get(),
             task,
             TASK_CREATE_OR_UPDATE,
             _variant_t(currentUser.c_str()),
             _variant_t(),
             TASK_LOGON_NONE,
             _variant_t(L""),
-            &registeredTask
+            &registeredTask)
         );
-        if (FAILED(result)) {
-            std::cerr << "Failed to register task: ";
-            std::wcerr << GetWin32Error(result);
-
-            return false;
-        }
-
-        return true;
     }
 }
 
 bool InstallTask()
 {
-    // Initialize COM, using CCoInitializeEx so that we don't need to worry about
+    // Initialize COM, using wil::CoInitializeEx so that we don't need to worry about
     // cleaning up after ourselves.
-    CCoInitializeEx comInit{COINIT_MULTITHREADED};
-    if (FAILED(comInit)) {
-        std::cerr << "Failed to initialize COM: ";
-        std::wcerr << GetWin32Error(comInit);
-
-        return false;
-    }
-
+    const auto coInit = wil::CoInitializeEx(COINIT_MULTITHREADED);
+    
     // Setup general COM security so that we're impersonating the current user.
-    HRESULT result = CoInitializeSecurity(
+    THROW_IF_FAILED(CoInitializeSecurity(
         NULL,
         -1,
         NULL,
@@ -217,87 +145,40 @@ bool InstallTask()
         RPC_C_IMP_LEVEL_IMPERSONATE,
         NULL,
         0,
-        NULL);
-    if (FAILED(result)) {
-        std::cerr << "Failed to initialize COM security: ";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
+        NULL));
 
     // Access the Windows Task Service API by creating an instance of it and attempt to connect
     // to the Task Scheduler service on the local machine.
-    CComPtr<ITaskService> taskService;
-    result = taskService.CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER);
-    if (FAILED(result)) {
-        std::cerr << "Failed to create an instance of the ITaskService:";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
-
-    result = taskService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
-    if (FAILED(result)) {
-        std::cerr << "Failed to connect to the Task Scheduler service of the local machine: ";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
+    wil::com_ptr<ITaskService> taskService = wil::CoCreateInstance<ITaskService>(CLSID_TaskScheduler);
+    THROW_IF_FAILED(taskService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t()));
 
     // Get a pointer to the root task folder, which is where we'll register our new task.
-    CComPtr<ITaskFolder> rootFolder;
-    result = taskService->GetFolder(_bstr_t(L"\\"), &rootFolder);
-    if (FAILED(result)) {
-        std::cerr << "Failed to get root folder of Task Scheduler: ";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
+    auto rootFolderPath = wil::make_bstr(L"\\");
+    wil::com_ptr<ITaskFolder> rootFolder;
+    THROW_IF_FAILED(taskService->GetFolder(rootFolderPath.get(), &rootFolder));
 
     // Create a task builder object to create the task
-    CComPtr<ITaskDefinition> task;
-    result = taskService->NewTask(0, &task);
-    if (FAILED(result)) {
-        std::cerr << "Failed to create task definition: ";
-        std::wcerr << GetWin32Error(result);
-    }
+    wil::com_ptr<ITaskDefinition> task;
+    THROW_IF_FAILED(taskService->NewTask(0, &task));
 
     // Start setting up the task
-    if (!SetRegisterationInfo(task)) {
-        return false;
-    }
-    if (!SetSettings(task)) {
-        return false;
-    }
-    if (!SetTriggers(task)) {
-        return false;
-    }
-    if (!SetAction(task)) {
-        return false;
-    }
-
-    // Register the task
-    if (!SaveTask(rootFolder, task)) {
-        return false;
-    }
+    SetRegisterationInfo(task.get());
+    SetSettings(task.get());
+    SetTriggers(task.get());
+    SetAction(task.get());
+    SaveTask(rootFolder.get(), task.get());
 
 	return true;
 }
 
 bool UninstallTask()
 {
-    // Initialize COM, using CCoInitializeEx so that we don't need to worry about
-// cleaning up after ourselves.
-    CCoInitializeEx comInit{ COINIT_MULTITHREADED };
-    if (FAILED(comInit)) {
-        std::cerr << "Failed to initialize COM: ";
-        std::wcerr << GetWin32Error(comInit);
-
-        return false;
-    }
+    // Initialize COM, using wil::CoInitializeEx so that we don't need to worry about
+    // cleaning up after ourselves.
+    const auto coInit = wil::CoInitializeEx(COINIT_MULTITHREADED);
 
     // Setup general COM security so that we're impersonating the current user.
-    HRESULT result = CoInitializeSecurity(
+    THROW_IF_FAILED(CoInitializeSecurity(
         NULL,
         -1,
         NULL,
@@ -306,44 +187,19 @@ bool UninstallTask()
         RPC_C_IMP_LEVEL_IMPERSONATE,
         NULL,
         0,
-        NULL);
-    if (FAILED(result)) {
-        std::cerr << "Failed to initialize COM security: ";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
+        NULL));
 
     // Access the Windows Task Service API by creating an instance of it and attempt to connect
     // to the Task Scheduler service on the local machine.
-    CComPtr<ITaskService> taskService;
-    result = taskService.CoCreateInstance(CLSID_TaskScheduler, NULL, CLSCTX_INPROC_SERVER);
-    if (FAILED(result)) {
-        std::cerr << "Failed to create an instance of the ITaskService:";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
-
-    result = taskService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t());
-    if (FAILED(result)) {
-        std::cerr << "Failed to connect to the Task Scheduler service of the local machine: ";
-        std::wcerr << GetWin32Error(result);
-
-        return false;
-    }
+    wil::com_ptr<ITaskService> taskService = wil::CoCreateInstance<ITaskService>(CLSID_TaskScheduler);
+    THROW_IF_FAILED(taskService->Connect(_variant_t(), _variant_t(), _variant_t(), _variant_t()));
 
     // Get a pointer to the root task folder, which is where we'll register our new task.
-    CComPtr<ITaskFolder> rootFolder;
-    result = taskService->GetFolder(_bstr_t(L"\\"), &rootFolder);
-    if (FAILED(result)) {
-        std::cerr << "Failed to get root folder of Task Scheduler: ";
-        std::wcerr << GetWin32Error(result);
+    auto rootFolderPath = wil::make_bstr(L"\\");
+    wil::com_ptr<ITaskFolder> rootFolder;
+    THROW_IF_FAILED(taskService->GetFolder(rootFolderPath.get(), &rootFolder));
 
-        return false;
-    }
+    auto taskName = wil::make_bstr(L"Transition Fixer");
 
-    rootFolder->DeleteTask(_bstr_t("Transition Fixer"), 0);
-
-	return true;
+    return SUCCEEDED(rootFolder->DeleteTask(taskName.get(), 0));
 }

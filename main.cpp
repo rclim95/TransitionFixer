@@ -3,10 +3,13 @@
 
 #include <Windows.h>
 
+#include "wil/result.h"
+
 #include "exit_code.h"
 #include "event_log.h"
 #include "task_scheduler.h"
 #include "transition_fixer.h"
+#include "utils.h"
 
 namespace po = boost::program_options;
 
@@ -103,6 +106,11 @@ int main(int argc, char* argv[])
 		else {
 			return ExitCode::ERR_FAILURE;
 		}
+	}
+	catch (const wil::ResultException& ex) {
+		std::cerr << ex.what() << std::endl;
+
+		return ExitCode::ERR_FAILURE;
 	}
 	catch (const po::error& ex) {
 		std::cerr
